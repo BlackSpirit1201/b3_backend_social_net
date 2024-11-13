@@ -1,9 +1,9 @@
-  
 import User from '../models/users.js';
+import Follow from '../models/follows.js';
+import Publication from '../models/publications.js';
 import bcrypt from 'bcrypt';
 import { createToken } from '../services/jwt.js';
-
-
+import { followThisUser, followUserIds } from '../services/followServices.js';
 
 // Método de prueba del controlador user
 export const testUser = (req, res) => {
@@ -44,6 +44,7 @@ export const register = async (req, res) => {
         message: "¡El usuario ya existe en la BD!"
       });
     }
+
     // Cifrar la contraseña
     // Genera los saltos para encriptar
     const salt = await bcrypt.genSalt(10);
@@ -140,8 +141,8 @@ export const login = async (req, res) => {
   }
 };
 
-//Método para mostrar el perfil de un usuario
 
+// Método para mostrar el perfil de un usuario
 export const profile = async (req, res) => {
   try {
     // Obtener el ID del usuario desde los párametros de la URL
@@ -166,10 +167,14 @@ export const profile = async (req, res) => {
       });
     }
 
+    // Información de seguimiento: id del usuario identificado (req.user.userId) y el id del usuario del perfil que queremos consultar (userId = req.params.id)
+    const followInfo = await followThisUser(req.user.userId, userId);
+
     // Devolver la información del perfil del usuario solicitado
     return res.status(200).json({
       status: "success",
-      user: userProfile
+      user: userProfile,
+      followInfo
     });
 
   } catch (error) {
@@ -181,8 +186,7 @@ export const profile = async (req, res) => {
   }
 };
 
-// Método para listar los usuarios
-
+// Método para Listar los usuarios
 export const listUsers = async (req, res) => {
   try {
     // Gestionar la paginación
@@ -209,13 +213,18 @@ export const listUsers = async (req, res) => {
       });
     }
 
+    // Listar los seguidores de un usuario, obtener el array de IDs de los usuarios que sigo
+    let followUsers = await followUserIds(req);
+
     // Devolver los usuarios paginados
     return res.status(200).json({
       status: "success",
       users: users.docs,
       totalDocs: users.totalDocs,
       totalPages: users.totalPages,
-      CurrentPage: users.page
+      CurrentPage: users.page,
+      users_following: followUsers.following,
+      user_follow_me: followUsers.followers
     });
 
   } catch (error) {
@@ -299,81 +308,132 @@ export const updateUser = async (req, res) => {
       message: "Error al actualizar los datos del usuario"
     });
   }
-}
+};
 
-  // Método para subir AVATAR (imagen de perfil) y actualizamos el campo image del User
-  export const uploadAvatar = async (req, res) => {
-    try {
-      // Verificar si se ha subido un archivo
-      if(!req.file){
-        return res.status(400).send({
-          status: "error",
-          message: "Error la petición no incluye la imagen"
-        });
-      }
-  
-      // Obtener la URL del archivo subido en Cloudinary
-      const avatarUrl = req.file.path;
-  
-      // Guardar la imagen en la BD
-      const userUpdated = await User.findByIdAndUpdate(
-        req.user.userId,
-        { image: avatarUrl },
-        { new: true }
-      );
-  
-      // Verificar si la actualización fue exitosa
-      if(!userUpdated){
-        return res.status(500).send({
-          status: "error",
-          message: "Error al subir el archivo del avatar"
-        });
-      }
-  
-      // Devolver respuesta exitosa
-      return res.status(200).json({
-        status: "success",
-        user: userUpdated,
-        file: avatarUrl
+// Método para subir AVATAR (imagen de perfil) y actualizamos el campo image del User
+export const uploadAvatar = async (req, res) => {
+  try {
+    // Verificar si se ha subido un archivo
+    if(!req.file){
+      return res.status(400).send({
+        status: "error",
+        message: "Error la petición no incluye la imagen"
       });
-  
-    } catch (error) {
-      console.log("Error al subir el archivo del avatar", error);
+    }
+
+    // Obtener la URL del archivo subido en Cloudinary
+    const avatarUrl = req.file.path;
+
+    // Guardar la imagen en la BD
+    const userUpdated = await User.findByIdAndUpdate(
+      req.user.userId,
+      { image: avatarUrl },
+      { new: true }
+    );
+
+    // Verificar si la actualización fue exitosa
+    if(!userUpdated){
       return res.status(500).send({
         status: "error",
         message: "Error al subir el archivo del avatar"
       });
     }
-  };
 
-  //Método para mostrar el AVATAR o imagen de perfil
-  export const avatar = async(req,res) => {
-    try {
-      
-      //Obterner el parámetro del archibo desde la url
-      const userId = req.params.file;
+    // Devolver respuesta exitosa
+    return res.status(200).json({
+      status: "success",
+      user: userUpdated,
+      file: avatarUrl
+    });
 
-      //Buscar el usuario en la base de datos para obtener la URL de Cloudinary
-      const user = await User.findById(userId).select('image');
+  } catch (error) {
+    console.log("Error al subir el archivo del avatar", error);
+    return res.status(500).send({
+      status: "error",
+      message: "Error al subir el archivo del avatar"
+    });
+  }
+};
 
-      //Verificar si el usuario existe y si tiene una imagen
-      if (!User || !user.image) {
-        console.log("El usuario o imagen no existen");
-        return res.status(404).send({
-          status: "error",
-          message: "El usuario o imagen no existen"  
-        });
-      }
-      //Devolver la irl de la imgen desde cloudbinary
-      return res.status(200).send({
-        status: "success",
-        message: user.image
-      });
-    } catch (error) {
-      console.log("Error al mosrtar el archivo de avatar");
-      return res.status(500).send({
+// Método para mostrar el AVATAR (imagen de perfil)
+export const avatar = async (req, res) => {
+  try {
+    // Obtener el ID desde el parámetro del archivo 
+    const userId = req.params.id;
+
+    // Buscar el usuario en la base de datos para obtener la URL de Cloudinary
+    const user = await User.findById(userId).select('image');
+
+    // Verificar si el usuario existe y tiene una imagen
+    if(!user || !user.image){
+      return res.status(404).send({
         status: "error",
-        message: "Error al mosrtar el archivo de avatar"  
+        message: "No existe usuario o imagen"
       });
     }
-  };
+
+    // Redirigir a la URL de la imagen en Cloudinary
+    return res.redirect(user.image);
+
+  } catch (error) {
+  console.log("Error al mostrar el archivo del avatar", error);
+  return res.status(500).send({
+    status: "error",
+    message: "Error al mostrar el archivo del avatar"
+  });
+  }
+};
+
+// Método para mostrar contador de seguidores y publicaciones
+export const counters = async (req, res) => {
+  try {
+    // Obtener el Id del usuario autenticado (token)
+    let userId = req.user.userId;
+
+
+    // Si llega el id a través de los parámetros en la URL tiene prioridad
+    if(req.params.id){
+      userId = req.params.id;
+    }
+
+    // Obtener el nombre y apellido del usuario
+    const user = await User.findById(userId, { name: 1, last_name: 1});
+
+
+
+    // Vericar el user
+    if(!user){
+      return res.status(404).send({
+        status: "error",
+        message: "Usuario no encontrado"
+      });
+    }
+
+    // Contador de usuarios que yo sigo (o que sigue el usuario autenticado)
+    const followingCount = await Follow.countDocuments({ "following_user": userId });
+
+    // Contador de usuarios que me siguen a mi (que siguen al usuario autenticado)
+    const followedCount = await Follow.countDocuments({ "followed_user": userId });
+
+    // Contador de publicaciones del usuario autenticado
+    const publicationsCount = await Publication.countDocuments({ "user_id": userId });
+
+    // Devolver los contadores
+    return res.status(200).json({
+      status: "success",
+      userId,
+      name: user.name,
+      last_name: user.last_name,
+      followingCount: followingCount,
+      followedCount: followedCount,
+      publicationsCount: publicationsCount
+    });
+
+  } catch (error) {
+    console.log("Error en los contadores", error)
+    return res.status(500).send({
+      status: "error",
+      message: "Error en los contadores"
+    });
+  }
+}

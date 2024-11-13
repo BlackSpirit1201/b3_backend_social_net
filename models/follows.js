@@ -13,7 +13,7 @@ const FollowSchema = Schema({
     required: true
   },
   created_at: {
-    type: Date,	
+    type: Date,
     default: Date.now
   }
 });

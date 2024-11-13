@@ -5,7 +5,7 @@ import cors from "cors";
 import bodyParser from "body-parser";
 import UserRoutes from "./routes/users.js";
 import PublicationRoutes from "./routes/publications.js";
-import FollowRoutes from "./routes/follows.js"
+import FollowRoutes from "./routes/follows.js";
 
 
 // Mensaje de Bienvenida para verificare ejecutó la API de Node
@@ -41,3 +41,4 @@ app.listen(puerto, () => {
 });
 
 export default app;
+
